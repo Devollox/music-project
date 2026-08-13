@@ -1,0 +1,78 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: musicdb
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports:
+      - '5672:5672'
+      - '15672:15672'
+    environment:
+      RABBITMQ_DEFAULT_USER: music_user
+      RABBITMQ_DEFAULT_PASS: music_password
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+  gateway:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - '3001:3001'
+    environment:
+      PORT: 3001
+      REDIS_URL: redis://redis:6379
+      AUDIO_SERVICE_GRPC_URL: audio-service:50051
+    depends_on:
+      - redis
+      - audio-service
+
+  audio-service:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - '50051:50051'
+    environment:
+      DATABASE_URL: postgresql://user:password@db:5432/musicdb?schema=public
+      RABBITMQ_URL: amqp://music_user:music_password@rabbitmq:5672
+      GRPC_PORT: 50051
+    volumes:
+      - audio_storage:/app/storage
+    depends_on:
+      - db
+      - rabbitmq
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - '3000:3000'
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+    depends_on:
+      - gateway
+
+volumes:
+  pgdata:
+  redis_data:
+  rabbitmq_data:
+  audio_storage:
